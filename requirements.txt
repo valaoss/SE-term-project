@@ -1,0 +1,5 @@
+fastapi
+google-auth
+pydantic
+requests
+uvicorn
