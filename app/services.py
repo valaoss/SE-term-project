@@ -17,8 +17,20 @@ class InstructorUser:
     google_sub: str | None = None
 
 
+@dataclass(frozen=True)
+class StudentUser:
+    email: str
+    name: str | None = None
+    google_sub: str | None = None
+
+
 def _allowed_instructor_emails() -> set[str]:
     raw = os.getenv("INSTRUCTOR_EMAILS", "")
+    return {email.strip().lower() for email in raw.split(",") if email.strip()}
+
+
+def _allowed_student_emails() -> set[str]:
+    raw = os.getenv("STUDENT_EMAILS", "")
     return {email.strip().lower() for email in raw.split(",") if email.strip()}
 
 
@@ -59,6 +71,20 @@ def map_to_instructor_account(payload: dict[str, Any]) -> InstructorUser:
     )
 
 
+def map_to_student_account(payload: dict[str, Any]) -> StudentUser:
+    email = str(payload["email"]).lower()
+    allowed_emails = _allowed_student_emails()
+
+    if allowed_emails and email not in allowed_emails:
+        raise AuthError("Google identity is not mapped to a student account")
+
+    return StudentUser(
+        email=email,
+        name=payload.get("name"),
+        google_sub=payload.get("sub"),
+    )
+
+
 def instructor_google_login(token: str) -> dict[str, Any]:
     payload = verify_google_token(token)
     instructor = map_to_instructor_account(payload)
@@ -69,4 +95,17 @@ def instructor_google_login(token: str) -> dict[str, Any]:
         "email": instructor.email,
         "name": instructor.name,
         "google_sub": instructor.google_sub,
+    }
+
+
+def student_google_login(token: str) -> dict[str, Any]:
+    payload = verify_google_token(token)
+    student = map_to_student_account(payload)
+
+    return {
+        "ok": True,
+        "role": "student",
+        "email": student.email,
+        "name": student.name,
+        "google_sub": student.google_sub,
     }
