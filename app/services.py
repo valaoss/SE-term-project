@@ -17,6 +17,7 @@ class InstructorUser:
     google_sub: str | None = None
 
 
+<<<<<<< HEAD
 @dataclass(frozen=True)
 class StudentUser:
     email: str
@@ -24,16 +25,21 @@ class StudentUser:
     google_sub: str | None = None
 
 
+=======
+>>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059
 def _allowed_instructor_emails() -> set[str]:
     raw = os.getenv("INSTRUCTOR_EMAILS", "")
     return {email.strip().lower() for email in raw.split(",") if email.strip()}
 
 
+<<<<<<< HEAD
 def _allowed_student_emails() -> set[str]:
     raw = os.getenv("STUDENT_EMAILS", "")
     return {email.strip().lower() for email in raw.split(",") if email.strip()}
 
 
+=======
+>>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059
 def verify_google_token(token: str) -> dict[str, Any]:
     if not token:
         raise AuthError("Google ID token is required")
@@ -71,6 +77,7 @@ def map_to_instructor_account(payload: dict[str, Any]) -> InstructorUser:
     )
 
 
+<<<<<<< HEAD
 def map_to_student_account(payload: dict[str, Any]) -> StudentUser:
     email = str(payload["email"]).lower()
     allowed_emails = _allowed_student_emails()
@@ -85,6 +92,8 @@ def map_to_student_account(payload: dict[str, Any]) -> StudentUser:
     )
 
 
+=======
+>>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059
 def instructor_google_login(token: str) -> dict[str, Any]:
     payload = verify_google_token(token)
     instructor = map_to_instructor_account(payload)
@@ -96,6 +105,7 @@ def instructor_google_login(token: str) -> dict[str, Any]:
         "name": instructor.name,
         "google_sub": instructor.google_sub,
     }
+<<<<<<< HEAD
 
 
 def student_google_login(token: str) -> dict[str, Any]:
@@ -109,3 +119,5 @@ def student_google_login(token: str) -> dict[str, Any]:
         "name": student.name,
         "google_sub": student.google_sub,
     }
+=======
+>>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059

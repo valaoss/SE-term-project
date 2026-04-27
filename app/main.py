@@ -4,6 +4,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+<<<<<<< HEAD
 from app.services import (
     AuthError,
     InstructorUser,
@@ -14,6 +15,9 @@ from app.services import (
     student_google_login,
     verify_google_token,
 )
+=======
+from app.services import AuthError, InstructorUser, instructor_google_login, map_to_instructor_account, verify_google_token
+>>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059
 
 
 app = FastAPI()
@@ -54,6 +58,7 @@ def require_instructor(
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
+<<<<<<< HEAD
 def require_student(
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
 ) -> StudentUser:
@@ -66,6 +71,8 @@ def require_student(
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
+=======
+>>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059
 @app.get("/")
 def read_root() -> dict[str, bool]:
     return {"ok": True}
@@ -79,6 +86,7 @@ def google_instructor_login(request: GoogleLoginRequest) -> dict[str, object]:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
+<<<<<<< HEAD
 @app.post("/auth/google/student")
 def google_student_login(request: GoogleLoginRequest) -> dict[str, object]:
     try:
@@ -87,6 +95,8 @@ def google_student_login(request: GoogleLoginRequest) -> dict[str, object]:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
+=======
+>>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059
 @app.post("/auth/google/verify-instructor")
 def verify_instructor_token(instructor: Annotated[InstructorUser, Depends(require_instructor)]) -> dict[str, object]:
     return {
@@ -95,6 +105,7 @@ def verify_instructor_token(instructor: Annotated[InstructorUser, Depends(requir
         "email": instructor.email,
         "name": instructor.name,
     }
+<<<<<<< HEAD
 
 
 @app.post("/auth/google/verify-student")
@@ -105,3 +116,5 @@ def verify_student_token(student: Annotated[StudentUser, Depends(require_student
         "email": student.email,
         "name": student.name,
     }
+=======
+>>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059
