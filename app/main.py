@@ -1,10 +1,9 @@
-from typing import Annotated
+from typing import Annotated, Optional, Dict, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-<<<<<<< HEAD
 from app.services import (
     AuthError,
     InstructorUser,
@@ -15,10 +14,6 @@ from app.services import (
     student_google_login,
     verify_google_token,
 )
-=======
-from app.services import AuthError, InstructorUser, instructor_google_login, map_to_instructor_account, verify_google_token
->>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059
-
 
 app = FastAPI()
 
@@ -35,22 +30,24 @@ class GoogleLoginRequest(BaseModel):
     token: str
 
 
-def _bearer_token(authorization: str | None) -> str:
+def _bearer_token(authorization: Optional[str]) -> str:
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization header is required")
 
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
-        raise HTTPException(status_code=401, detail="Authorization header must be Bearer token")
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header must be Bearer token",
+        )
 
     return token
 
 
 def require_instructor(
-    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+    authorization: Annotated[Optional[str], Header(alias="Authorization")] = None,
 ) -> InstructorUser:
     token = _bearer_token(authorization)
-
     try:
         payload = verify_google_token(token)
         return map_to_instructor_account(payload)
@@ -58,12 +55,10 @@ def require_instructor(
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
-<<<<<<< HEAD
 def require_student(
-    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+    authorization: Annotated[Optional[str], Header(alias="Authorization")] = None,
 ) -> StudentUser:
     token = _bearer_token(authorization)
-
     try:
         payload = verify_google_token(token)
         return map_to_student_account(payload)
@@ -71,50 +66,46 @@ def require_student(
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
-=======
->>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059
 @app.get("/")
-def read_root() -> dict[str, bool]:
+def read_root() -> Dict[str, bool]:
     return {"ok": True}
 
 
 @app.post("/auth/google/instructor")
-def google_instructor_login(request: GoogleLoginRequest) -> dict[str, object]:
+def google_instructor_login(request: GoogleLoginRequest) -> Dict[str, Any]:
     try:
         return instructor_google_login(request.token)
     except AuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
-<<<<<<< HEAD
 @app.post("/auth/google/student")
-def google_student_login(request: GoogleLoginRequest) -> dict[str, object]:
+def google_student_login(request: GoogleLoginRequest) -> Dict[str, Any]:
     try:
         return student_google_login(request.token)
     except AuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
-=======
->>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059
 @app.post("/auth/google/verify-instructor")
-def verify_instructor_token(instructor: Annotated[InstructorUser, Depends(require_instructor)]) -> dict[str, object]:
+def verify_instructor_token(
+    instructor: Annotated[InstructorUser, Depends(require_instructor)]
+) -> Dict[str, Any]:
     return {
         "ok": True,
         "role": "instructor",
         "email": instructor.email,
         "name": instructor.name,
     }
-<<<<<<< HEAD
 
 
 @app.post("/auth/google/verify-student")
-def verify_student_token(student: Annotated[StudentUser, Depends(require_student)]) -> dict[str, object]:
+def verify_student_token(
+    student: Annotated[StudentUser, Depends(require_student)]
+) -> Dict[str, Any]:
     return {
         "ok": True,
         "role": "student",
         "email": student.email,
         "name": student.name,
     }
-=======
->>>>>>> c4fb2ac3697a50f29a4955a31ee579bac20da059
