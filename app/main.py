@@ -4,6 +4,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app.database import engine, Base
+from app import models
+
+Base.metadata.create_all(bind=engine)
+
 from app.services import (
     AuthError,
     InstructorUser,
