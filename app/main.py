@@ -9,6 +9,7 @@ from app.services import (
     InstructorUser,
     StudentUser,
     instructor_google_login,
+    list_my_courses,  # 🔥 EKLEDİK
     map_to_instructor_account,
     map_to_student_account,
     student_google_login,
@@ -71,6 +72,7 @@ def read_root() -> Dict[str, bool]:
     return {"ok": True}
 
 
+# 🔐 LOGIN
 @app.post("/auth/google/instructor")
 def google_instructor_login(request: GoogleLoginRequest) -> Dict[str, Any]:
     try:
@@ -87,6 +89,7 @@ def google_student_login(request: GoogleLoginRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
+# 🔍 TOKEN VERIFY
 @app.post("/auth/google/verify-instructor")
 def verify_instructor_token(
     instructor: Annotated[InstructorUser, Depends(require_instructor)]
@@ -108,4 +111,15 @@ def verify_student_token(
         "role": "student",
         "email": student.email,
         "name": student.name,
+    }
+
+
+
+@app.get("/courses/my")
+def get_my_courses(
+    instructor: Annotated[InstructorUser, Depends(require_instructor)]
+) -> Dict[str, Any]:
+    return {
+        "ok": True,
+        "courses": list_my_courses(instructor.email),
     }

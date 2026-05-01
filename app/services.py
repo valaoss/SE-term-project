@@ -109,3 +109,46 @@ def student_google_login(token: str) -> dict[str, Any]:
         "name": student.name,
         "google_sub": student.google_sub,
     }
+
+
+# US-D: Course table + instructor-course mapping
+
+COURSES_TABLE = [
+    {
+        "id": "SE101",
+        "name": "Software Engineering",
+    },
+    {
+        "id": "SE102",
+        "name": "Software Engineering Lab",
+    },
+    {
+        "id": "DB201",
+        "name": "Database Systems",
+    },
+]
+
+INSTRUCTOR_COURSES_TABLE = [
+    {
+        "instructor_email": "buldukb@mef.edu.tr",
+        "course_id": "SE101",
+    },
+    {
+        "instructor_email": "buldukb@mef.edu.tr",
+        "course_id": "SE102",
+    },
+]
+
+
+def list_my_courses(instructor_email: str) -> list[dict[str, Any]]:
+    assigned_course_ids = {
+        row["course_id"]
+        for row in INSTRUCTOR_COURSES_TABLE
+        if row["instructor_email"].lower() == instructor_email.lower()
+    }
+
+    return [
+        course
+        for course in COURSES_TABLE
+        if course["id"] in assigned_course_ids
+    ]
