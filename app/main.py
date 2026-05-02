@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated, Optional, Dict, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -6,16 +7,23 @@ from pydantic import BaseModel
 
 from app.services import (
     AuthError,
+    CourseAccessError,
+    CourseNotFoundError,
+    DatabaseConfigError,
     InstructorUser,
     StudentUser,
+    initialize_activity_schema,
     instructor_google_login,
+    list_activities,
     map_to_instructor_account,
     map_to_student_account,
+    seed_demo_activity_data,
     student_google_login,
     verify_google_token,
 )
 
 app = FastAPI()
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,6 +36,22 @@ app.add_middleware(
 
 class GoogleLoginRequest(BaseModel):
     token: str
+
+
+class ActivityResponse(BaseModel):
+    course_id: str
+    activity_no: int
+    title: str
+    status: str
+
+
+@app.on_event("startup")
+def create_activity_table() -> None:
+    try:
+        initialize_activity_schema()
+        seed_demo_activity_data()
+    except DatabaseConfigError as exc:
+        logger.warning("Activity database was not initialized: %s", exc)
 
 
 def _bearer_token(authorization: Optional[str]) -> str:
@@ -109,3 +133,47 @@ def verify_student_token(
         "email": student.email,
         "name": student.name,
     }
+
+
+@app.get(
+    "/student/courses/{course_id}/activities",
+    response_model=list[ActivityResponse],
+)
+def list_student_activities(
+    course_id: str,
+    student: Annotated[StudentUser, Depends(require_student)],
+) -> list[Dict[str, Any]]:
+    try:
+        return list_activities(
+            course_id=course_id,
+            role="student",
+            user_email=student.email,
+        )
+    except CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CourseAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except DatabaseConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get(
+    "/instructor/courses/{course_id}/activities",
+    response_model=list[ActivityResponse],
+)
+def list_instructor_activities(
+    course_id: str,
+    instructor: Annotated[InstructorUser, Depends(require_instructor)],
+) -> list[Dict[str, Any]]:
+    try:
+        return list_activities(
+            course_id=course_id,
+            role="instructor",
+            user_email=instructor.email,
+        )
+    except CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CourseAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except DatabaseConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
