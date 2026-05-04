@@ -378,3 +378,60 @@ def list_activities(
                 (course_id_from_db,),
             )
             return _fetch_all_as_dicts(cursor)
+def create_activity(
+    course_id: str,
+    activity_no: int,
+    title: str,
+    status: str,
+    role: str,
+    user_email: str,
+) -> dict[str, Any]:
+    VALID_STATUSES = {"NOT_STARTED", "ACTIVE", "ENDED"}
+
+    # Validate required fields
+    if not course_id or not course_id.strip():
+        raise ValueError("course_id is required")
+    if not title or not title.strip():
+        raise ValueError("title is required")
+    if activity_no is None:
+        raise ValueError("activity_no is required")
+    if activity_no < 1:
+        raise ValueError("activity_no must be a positive integer")
+    if status not in VALID_STATUSES:
+        raise ValueError(f"status must be one of {sorted(VALID_STATUSES)}")
+
+    with _db_connection() as connection:
+        with connection.cursor() as cursor:
+            # Validate course access
+            course_id_from_db = _validate_course_ownership(
+                cursor=cursor,
+                course_id=course_id,
+                role=role,
+                user_email=user_email,
+            )
+
+            # Prevent duplicate activity_no
+            cursor.execute(
+                """
+                SELECT 1 FROM activities
+                WHERE LOWER(course_id) = LOWER(%s)
+                  AND activity_no = %s
+                """,
+                (course_id_from_db, activity_no),
+            )
+            if cursor.fetchone() is not None:
+                raise ValueError(
+                    f"activity_no {activity_no} already exists in this course"
+                )
+
+            # Store in DB
+            cursor.execute(
+                """
+                INSERT INTO activities (course_id, activity_no, title, status)
+                VALUES (%s, %s, %s, %s)
+                RETURNING course_id, activity_no, title, status
+                """,
+                (course_id_from_db, activity_no, title.strip(), status),
+            )
+            return _fetch_one_as_dict(cursor)
+        

@@ -12,6 +12,7 @@ from app.services import (
     DatabaseConfigError,
     InstructorUser,
     StudentUser,
+    create_activity,
     initialize_activity_schema,
     instructor_google_login,
     list_activities,
@@ -175,5 +176,38 @@ def list_instructor_activities(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except CourseAccessError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except DatabaseConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+class CreateActivityRequest(BaseModel):
+    activity_no: int
+    title: str
+    status: str
+
+
+@app.post(
+    "/instructor/courses/{course_id}/activities",
+    response_model=ActivityResponse,
+    status_code=201,
+)
+def create_instructor_activity(
+    course_id: str,
+    request: CreateActivityRequest,
+    instructor: Annotated[InstructorUser, Depends(require_instructor)],
+) -> Dict[str, Any]:
+    try:
+        return create_activity(
+            course_id=course_id,
+            activity_no=request.activity_no,
+            title=request.title,
+            status=request.status,
+            role="instructor",
+            user_email=instructor.email,
+        )
+    except CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CourseAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:          
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except DatabaseConfigError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
