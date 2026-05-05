@@ -19,6 +19,10 @@ class CourseNotFoundError(CourseAccessError):
     pass
 
 
+class ActivityNotFoundError(ValueError):
+    pass
+
+
 class DatabaseConfigError(RuntimeError):
     pass
 
@@ -60,7 +64,15 @@ def _demo_instructor_emails() -> set[str]:
     explicit_emails = {
         email.strip().lower() for email in raw.split(",") if email.strip()
     }
-    return explicit_emails or _allowed_instructor_emails()
+    emails = explicit_emails or _allowed_instructor_emails()
+    if os.getenv("DEV_MODE", "").strip().lower() == "true":
+        emails.add(
+            os.getenv("DEV_INSTRUCTOR_EMAIL", "dev-instructor@example.com")
+            .strip()
+            .lower()
+        )
+
+    return emails
 
 
 def _demo_student_emails() -> set[str]:
@@ -77,6 +89,56 @@ def _database_url() -> str:
         raise DatabaseConfigError("DATABASE_URL is not configured")
 
     return database_url
+
+
+def _dev_mode_enabled() -> bool:
+    return os.getenv("DEV_MODE", "").strip().lower() == "true"
+
+
+def _use_memory_activity_store() -> bool:
+    return _dev_mode_enabled() and not (
+        os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
+    )
+
+
+_memory_activities: dict[str, list[dict[str, Any]]] = {}
+
+
+def _memory_course_id(course_id: str) -> str:
+    normalized_course_id = course_id.strip().lower()
+    if not normalized_course_id:
+        raise CourseAccessError("Course id is required")
+    if normalized_course_id != _demo_course_id().lower():
+        raise CourseNotFoundError("Course was not found")
+
+    return _demo_course_id()
+
+
+def _seed_memory_activity_data() -> None:
+    course_id = _demo_course_id()
+    if course_id in _memory_activities:
+        return
+
+    _memory_activities[course_id] = [
+        {
+            "course_id": course_id,
+            "activity_no": 1,
+            "title": "Project proposal",
+            "status": "NOT_STARTED",
+        },
+        {
+            "course_id": course_id,
+            "activity_no": 2,
+            "title": "Requirements analysis",
+            "status": "ACTIVE",
+        },
+        {
+            "course_id": course_id,
+            "activity_no": 3,
+            "title": "Sprint planning",
+            "status": "ENDED",
+        },
+    ]
 
 
 def _connect_to_postgres() -> Any:
@@ -133,6 +195,9 @@ def _fetch_all_as_dicts(cursor: Any) -> list[dict[str, Any]]:
 
 
 def initialize_activity_schema() -> None:
+    if _use_memory_activity_store():
+        return
+
     with _db_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -181,6 +246,10 @@ def initialize_activity_schema() -> None:
 
 
 def seed_demo_activity_data() -> None:
+    if _use_memory_activity_store():
+        _seed_memory_activity_data()
+        return
+
     course_id = _demo_course_id()
     course_name = _demo_course_name()
     activities = (
@@ -360,6 +429,20 @@ def list_activities(
     role: str,
     user_email: str,
 ) -> list[dict[str, Any]]:
+    if _use_memory_activity_store():
+        course_id_from_store = _memory_course_id(course_id)
+        _seed_memory_activity_data()
+        return sorted(
+            (
+                activity.copy()
+                for activity in _memory_activities[course_id_from_store]
+            ),
+            key=lambda activity: (
+                activity["activity_no"],
+                activity["title"].lower(),
+            ),
+        )
+
     with _db_connection() as connection:
         with connection.cursor() as cursor:
             course_id_from_db = _validate_course_ownership(
@@ -400,6 +483,24 @@ def create_activity(
     if status not in VALID_STATUSES:
         raise ValueError(f"status must be one of {sorted(VALID_STATUSES)}")
 
+    if _use_memory_activity_store():
+        course_id_from_store = _memory_course_id(course_id)
+        _seed_memory_activity_data()
+        activities = _memory_activities[course_id_from_store]
+        if any(activity["activity_no"] == activity_no for activity in activities):
+            raise ValueError(
+                f"activity_no {activity_no} already exists in this course"
+            )
+
+        activity = {
+            "course_id": course_id_from_store,
+            "activity_no": activity_no,
+            "title": title.strip(),
+            "status": status,
+        }
+        activities.append(activity)
+        return activity.copy()
+
     with _db_connection() as connection:
         with connection.cursor() as cursor:
             # Validate course access
@@ -434,4 +535,152 @@ def create_activity(
                 (course_id_from_db, activity_no, title.strip(), status),
             )
             return _fetch_one_as_dict(cursor)
-        
+
+
+def update_activity(
+    course_id: str,
+    activity_no: int,
+    updates: dict[str, Any],
+    role: str,
+    user_email: str,
+) -> dict[str, Any]:
+    valid_statuses = {"NOT_STARTED", "ACTIVE", "ENDED"}
+    editable_fields = {"activity_no", "title", "status"}
+    protected_fields = {
+        "id",
+        "activity_id",
+        "course_id",
+        "owner",
+        "owner_id",
+        "owner_email",
+        "user",
+        "user_id",
+        "user_email",
+        "created_at",
+        "updated_at",
+    }
+
+    if not course_id or not course_id.strip():
+        raise ValueError("course_id is required")
+    if activity_no < 1:
+        raise ValueError("activity_no must be a positive integer")
+    if not updates:
+        raise ValueError("Update request must include at least one editable field")
+
+    blocked_fields = protected_fields.intersection(updates)
+    if blocked_fields:
+        raise ValueError(
+            f"Protected fields cannot be updated: {sorted(blocked_fields)}"
+        )
+
+    unsupported_fields = set(updates) - editable_fields
+    if unsupported_fields:
+        raise ValueError(
+            f"Unsupported activity fields: {sorted(unsupported_fields)}"
+        )
+
+    normalized_updates: dict[str, Any] = {}
+    if "activity_no" in updates:
+        new_activity_no = updates["activity_no"]
+        if (
+            not isinstance(new_activity_no, int)
+            or isinstance(new_activity_no, bool)
+            or new_activity_no < 1
+        ):
+            raise ValueError("activity_no must be a positive integer")
+        normalized_updates["activity_no"] = new_activity_no
+    if "title" in updates:
+        title = updates["title"]
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("title is required")
+        normalized_updates["title"] = title.strip()
+    if "status" in updates:
+        status = updates["status"]
+        if not isinstance(status, str) or status not in valid_statuses:
+            raise ValueError(f"status must be one of {sorted(valid_statuses)}")
+        normalized_updates["status"] = status
+
+    if _use_memory_activity_store():
+        course_id_from_store = _memory_course_id(course_id)
+        _seed_memory_activity_data()
+        activities = _memory_activities[course_id_from_store]
+        activity = next(
+            (
+                stored_activity
+                for stored_activity in activities
+                if stored_activity["activity_no"] == activity_no
+            ),
+            None,
+        )
+        if activity is None:
+            raise ActivityNotFoundError("Activity was not found")
+
+        if (
+            "activity_no" in normalized_updates
+            and normalized_updates["activity_no"] != activity_no
+            and any(
+                stored_activity["activity_no"] == normalized_updates["activity_no"]
+                for stored_activity in activities
+            )
+        ):
+            raise ValueError(
+                f"activity_no {normalized_updates['activity_no']} already exists in this course"
+            )
+
+        activity.update(normalized_updates)
+        return activity.copy()
+
+    with _db_connection() as connection:
+        with connection.cursor() as cursor:
+            course_id_from_db = _validate_course_ownership(
+                cursor=cursor,
+                course_id=course_id,
+                role=role,
+                user_email=user_email,
+            )
+
+            cursor.execute(
+                """
+                SELECT activity_id
+                FROM activities
+                WHERE LOWER(course_id) = LOWER(%s)
+                  AND activity_no = %s
+                """,
+                (course_id_from_db, activity_no),
+            )
+            activity = _fetch_one_as_dict(cursor)
+            if activity is None:
+                raise ActivityNotFoundError("Activity was not found")
+
+            if (
+                "activity_no" in normalized_updates
+                and normalized_updates["activity_no"] != activity_no
+            ):
+                cursor.execute(
+                    """
+                    SELECT 1 FROM activities
+                    WHERE LOWER(course_id) = LOWER(%s)
+                      AND activity_no = %s
+                    """,
+                    (course_id_from_db, normalized_updates["activity_no"]),
+                )
+                if cursor.fetchone() is not None:
+                    raise ValueError(
+                        f"activity_no {normalized_updates['activity_no']} already exists in this course"
+                    )
+
+            set_clause = ", ".join(
+                f"{field} = %s" for field in normalized_updates
+            )
+            values = list(normalized_updates.values())
+            values.append(activity["activity_id"])
+            cursor.execute(
+                f"""
+                UPDATE activities
+                SET {set_clause}
+                WHERE activity_id = %s
+                RETURNING course_id, activity_no, title, status
+                """,
+                values,
+            )
+            return _fetch_one_as_dict(cursor)
