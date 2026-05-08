@@ -5,6 +5,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+
 from app.services import (
     AuthError,
     CourseAccessError,
@@ -20,6 +21,7 @@ from app.services import (
     seed_demo_activity_data,
     student_google_login,
     verify_google_token,
+    update_activity,
 )
 
 app = FastAPI()
@@ -177,3 +179,42 @@ def list_instructor_activities(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except DatabaseConfigError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+@app.post(
+    "/instructor/courses/{course_id}/activities/{activity_no}/start",
+    response_model=ActivityResponse,
+)
+def start_instructor_activity(
+    course_id: str,
+    activity_no: int,
+    instructor: Annotated[InstructorUser, Depends(require_instructor)],
+) -> Dict[str, Any]:
+    try:
+        return update_activity(
+            course_id=course_id,
+            activity_no=activity_no,
+            updates={"status": "ACTIVE"},
+            role="instructor",
+            user_email=instructor.email,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.post(
+    "/instructor/courses/{course_id}/activities/{activity_no}/end",
+    response_model=ActivityResponse,
+)
+def end_instructor_activity(
+    course_id: str,
+    activity_no: int,
+    instructor: Annotated[InstructorUser, Depends(require_instructor)],
+) -> Dict[str, Any]:
+    try:
+        return update_activity(
+            course_id=course_id,
+            activity_no=activity_no,
+            updates={"status": "ENDED"},
+            role="instructor",
+            user_email=instructor.email,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

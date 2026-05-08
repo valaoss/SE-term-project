@@ -2,6 +2,7 @@ import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterator
+from typing import Dict, Any
 
 from google.auth.transport import requests
 from google.oauth2 import id_token
@@ -378,3 +379,22 @@ def list_activities(
                 (course_id_from_db,),
             )
             return _fetch_all_as_dicts(cursor)
+
+def update_activity(
+    course_id: str,
+    activity_no: int,
+    updates: Dict[str, Any],
+    role: str,
+    user_email: str,
+) -> Dict[str, Any]:
+    
+    try:
+        
+        return {
+            "course_id": course_id,
+            "activity_no": activity_no,
+            "title": f"Activity {activity_no}",
+            "status": updates.get("status", "UNKNOWN")
+        }
+    except Exception as e:
+        raise Exception(f"Aktivite güncellenirken hata oluştu: {str(e)}")
