@@ -5,14 +5,15 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-
 from app.services import (
+    ActivityAccessError,
     AuthError,
     CourseAccessError,
     CourseNotFoundError,
     DatabaseConfigError,
     InstructorUser,
     StudentUser,
+    get_active_activity_for_student,
     initialize_activity_schema,
     instructor_google_login,
     list_activities,
@@ -20,8 +21,8 @@ from app.services import (
     map_to_student_account,
     seed_demo_activity_data,
     student_google_login,
-    verify_google_token,
     update_activity,
+    verify_google_token,
 )
 
 app = FastAPI()
@@ -41,6 +42,13 @@ class GoogleLoginRequest(BaseModel):
 
 
 class ActivityResponse(BaseModel):
+    course_id: str
+    activity_no: int
+    title: str
+    status: str
+
+
+class StudentActivityAccessResponse(BaseModel):
     course_id: str
     activity_no: int
     title: str
@@ -160,6 +168,31 @@ def list_student_activities(
 
 
 @app.get(
+    "/student/courses/{course_id}/activities/{activity_no}",
+    response_model=StudentActivityAccessResponse,
+)
+def get_student_activity(
+    course_id: str,
+    activity_no: int,
+    student: Annotated[StudentUser, Depends(require_student)],
+) -> Dict[str, Any]:
+    try:
+        return get_active_activity_for_student(
+            course_id=course_id,
+            activity_no=activity_no,
+            student_email=student.email,
+        )
+    except CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CourseAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ActivityAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except DatabaseConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get(
     "/instructor/courses/{course_id}/activities",
     response_model=list[ActivityResponse],
 )
@@ -179,6 +212,8 @@ def list_instructor_activities(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except DatabaseConfigError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.post(
     "/instructor/courses/{course_id}/activities/{activity_no}/start",
     response_model=ActivityResponse,
@@ -198,6 +233,7 @@ def start_instructor_activity(
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 
 @app.post(
     "/instructor/courses/{course_id}/activities/{activity_no}/end",

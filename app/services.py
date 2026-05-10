@@ -1,8 +1,7 @@
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator
-from typing import Dict, Any
+from typing import Any, Iterator, Dict
 
 from google.auth.transport import requests
 from google.oauth2 import id_token
@@ -17,6 +16,10 @@ class CourseAccessError(ValueError):
 
 
 class CourseNotFoundError(CourseAccessError):
+    pass
+
+
+class ActivityAccessError(ValueError):
     pass
 
 
@@ -58,17 +61,13 @@ def _demo_course_name() -> str:
 
 def _demo_instructor_emails() -> set[str]:
     raw = os.getenv("DEMO_INSTRUCTOR_EMAILS", "")
-    explicit_emails = {
-        email.strip().lower() for email in raw.split(",") if email.strip()
-    }
+    explicit_emails = {email.strip().lower() for email in raw.split(",") if email.strip()}
     return explicit_emails or _allowed_instructor_emails()
 
 
 def _demo_student_emails() -> set[str]:
     raw = os.getenv("DEMO_STUDENT_EMAILS", "")
-    explicit_emails = {
-        email.strip().lower() for email in raw.split(",") if email.strip()
-    }
+    explicit_emails = {email.strip().lower() for email in raw.split(",") if email.strip()}
     return explicit_emails or _allowed_student_emails()
 
 
@@ -76,7 +75,6 @@ def _database_url() -> str:
     database_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
     if not database_url:
         raise DatabaseConfigError("DATABASE_URL is not configured")
-
     return database_url
 
 
@@ -84,12 +82,10 @@ def _connect_to_postgres() -> Any:
     database_url = _database_url()
     try:
         import psycopg
-
         return psycopg.connect(database_url)
     except ModuleNotFoundError:
         try:
             import psycopg2
-
             return psycopg2.connect(database_url)
         except ModuleNotFoundError as exc:
             raise DatabaseConfigError("Install psycopg or psycopg2 to use PostgreSQL") from exc
@@ -111,10 +107,8 @@ def _db_connection() -> Iterator[Any]:
 def _row_to_dict(row: Any, columns: list[str]) -> dict[str, Any]:
     if isinstance(row, dict):
         return row
-
     if hasattr(row, "keys"):
         return {column: row[column] for column in row.keys()}
-
     return dict(zip(columns, row))
 
 
@@ -122,7 +116,6 @@ def _fetch_one_as_dict(cursor: Any) -> dict[str, Any] | None:
     row = cursor.fetchone()
     if row is None:
         return None
-
     columns = [column[0] for column in cursor.description]
     return _row_to_dict(row, columns)
 
@@ -148,8 +141,7 @@ def initialize_activity_schema() -> None:
                 """
                 CREATE TABLE IF NOT EXISTS instructor_courses (
                     instructor_email TEXT NOT NULL,
-                    course_id TEXT NOT NULL REFERENCES courses(course_id)
-                        ON DELETE CASCADE,
+                    course_id TEXT NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
                     PRIMARY KEY (instructor_email, course_id)
                 )
                 """
@@ -158,8 +150,7 @@ def initialize_activity_schema() -> None:
                 """
                 CREATE TABLE IF NOT EXISTS student_courses (
                     student_email TEXT NOT NULL,
-                    course_id TEXT NOT NULL REFERENCES courses(course_id)
-                        ON DELETE CASCADE,
+                    course_id TEXT NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
                     PRIMARY KEY (student_email, course_id)
                 )
                 """
@@ -168,13 +159,10 @@ def initialize_activity_schema() -> None:
                 """
                 CREATE TABLE IF NOT EXISTS activities (
                     activity_id BIGSERIAL PRIMARY KEY,
-                    course_id TEXT NOT NULL REFERENCES courses(course_id)
-                        ON DELETE CASCADE,
+                    course_id TEXT NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
                     activity_no INTEGER NOT NULL,
                     title TEXT NOT NULL,
-                    status TEXT NOT NULL CHECK (
-                        status IN ('NOT_STARTED', 'ACTIVE', 'ENDED')
-                    ),
+                    status TEXT NOT NULL CHECK (status IN ('NOT_STARTED', 'ACTIVE', 'ENDED')),
                     UNIQUE (course_id, activity_no)
                 )
                 """
@@ -196,11 +184,11 @@ def seed_demo_activity_data() -> None:
                 """
                 INSERT INTO courses (course_id, name)
                 VALUES (%s, %s)
-                ON CONFLICT (course_id) DO UPDATE
-                SET name = EXCLUDED.name
+                ON CONFLICT (course_id) DO UPDATE SET name = EXCLUDED.name
                 """,
                 (course_id, course_name),
             )
+
             for instructor_email in _demo_instructor_emails():
                 cursor.execute(
                     """
@@ -210,6 +198,7 @@ def seed_demo_activity_data() -> None:
                     """,
                     (instructor_email, course_id),
                 )
+
             for student_email in _demo_student_emails():
                 cursor.execute(
                     """
@@ -219,6 +208,7 @@ def seed_demo_activity_data() -> None:
                     """,
                     (student_email, course_id),
                 )
+
             for activity_no, title, status in activities:
                 cursor.execute(
                     """
@@ -250,11 +240,13 @@ def _validate_course_ownership(
         """,
         (normalized_course_id,),
     )
+
     course = _fetch_one_as_dict(cursor)
     if course is None:
         raise CourseNotFoundError("Course was not found")
 
     course_id_from_db = course["course_id"]
+
     if role == "instructor":
         access_table = "instructor_courses"
         email_column = "instructor_email"
@@ -273,6 +265,7 @@ def _validate_course_ownership(
         """,
         (user_email, course_id_from_db),
     )
+
     if cursor.fetchone() is None:
         raise CourseAccessError("User is not authorized to access this course")
 
@@ -309,11 +302,7 @@ def map_to_instructor_account(payload: dict[str, Any]) -> InstructorUser:
     if allowed_emails and email not in allowed_emails:
         raise AuthError("Google identity is not mapped to an instructor account")
 
-    return InstructorUser(
-        email=email,
-        name=payload.get("name"),
-        google_sub=payload.get("sub"),
-    )
+    return InstructorUser(email=email, name=payload.get("name"), google_sub=payload.get("sub"))
 
 
 def map_to_student_account(payload: dict[str, Any]) -> StudentUser:
@@ -323,11 +312,7 @@ def map_to_student_account(payload: dict[str, Any]) -> StudentUser:
     if allowed_emails and email not in allowed_emails:
         raise AuthError("Google identity is not mapped to a student account")
 
-    return StudentUser(
-        email=email,
-        name=payload.get("name"),
-        google_sub=payload.get("sub"),
-    )
+    return StudentUser(email=email, name=payload.get("name"), google_sub=payload.get("sub"))
 
 
 def instructor_google_login(token: str) -> dict[str, Any]:
@@ -356,11 +341,7 @@ def student_google_login(token: str) -> dict[str, Any]:
     }
 
 
-def list_activities(
-    course_id: str,
-    role: str,
-    user_email: str,
-) -> list[dict[str, Any]]:
+def list_activities(course_id: str, role: str, user_email: str) -> list[dict[str, Any]]:
     with _db_connection() as connection:
         with connection.cursor() as cursor:
             course_id_from_db = _validate_course_ownership(
@@ -369,6 +350,7 @@ def list_activities(
                 role=role,
                 user_email=user_email,
             )
+
             cursor.execute(
                 """
                 SELECT course_id, activity_no, title, status
@@ -378,7 +360,55 @@ def list_activities(
                 """,
                 (course_id_from_db,),
             )
+
             return _fetch_all_as_dicts(cursor)
+
+
+def get_active_activity_for_student(
+    course_id: str,
+    activity_no: int,
+    student_email: str,
+) -> dict[str, Any]:
+    with _db_connection() as connection:
+        with connection.cursor() as cursor:
+            # Validate student enrollment before returning any activity data.
+            course_id_from_db = _validate_course_ownership(
+                cursor=cursor,
+                course_id=course_id,
+                role="student",
+                user_email=student_email,
+            )
+
+            # Hide objectives from student:
+            # Only safe student-facing fields are selected and returned.
+            cursor.execute(
+                """
+                SELECT course_id, activity_no, title, status
+                FROM activities
+                WHERE LOWER(course_id) = LOWER(%s)
+                  AND activity_no = %s
+                """,
+                (course_id_from_db, activity_no),
+            )
+
+            activity = _fetch_one_as_dict(cursor)
+
+            if activity is None:
+                raise ActivityAccessError("Activity was not found")
+
+            if activity["status"] == "NOT_STARTED":
+                raise ActivityAccessError("Activity is not active yet")
+
+            if activity["status"] == "ENDED":
+                raise ActivityAccessError("Activity has ended")
+
+            return {
+                "course_id": activity["course_id"],
+                "activity_no": activity["activity_no"],
+                "title": activity["title"],
+                "status": activity["status"],
+            }
+
 
 def update_activity(
     course_id: str,
@@ -387,14 +417,12 @@ def update_activity(
     role: str,
     user_email: str,
 ) -> Dict[str, Any]:
-    
     try:
-        
         return {
             "course_id": course_id,
             "activity_no": activity_no,
             "title": f"Activity {activity_no}",
-            "status": updates.get("status", "UNKNOWN")
+            "status": updates.get("status", "UNKNOWN"),
         }
     except Exception as e:
         raise Exception(f"Aktivite güncellenirken hata oluştu: {str(e)}")
