@@ -1,4 +1,6 @@
+import json
 import os
+import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterator, Dict
@@ -23,8 +25,51 @@ class ActivityAccessError(ValueError):
     pass
 
 
+class EnglishResponseError(ValueError):
+    pass
+
+
 class DatabaseConfigError(RuntimeError):
     pass
+
+
+MAX_TUTORING_STEPS = 3
+_TURKISH_CHARACTERS = set("\u00e7\u011f\u0131\u00f6\u015f\u00fc\u00c7\u011e\u0130\u00d6\u015e\u00dc")
+_COMMON_NON_ENGLISH_WORDS = {
+    "ama",
+    "ben",
+    "bence",
+    "bir",
+    "bu",
+    "cunku",
+    "degil",
+    "ders",
+    "evet",
+    "hayir",
+    "icin",
+    "ile",
+}
+_QUESTION_FOCUS_STOP_WORDS = {
+    "about",
+    "activity",
+    "answer",
+    "because",
+    "detail",
+    "explain",
+    "from",
+    "have",
+    "learned",
+    "main",
+    "must",
+    "strongest",
+    "system",
+    "that",
+    "their",
+    "there",
+    "this",
+    "what",
+    "with",
+}
 
 
 @dataclass(frozen=True)
@@ -126,6 +171,171 @@ def _fetch_all_as_dicts(cursor: Any) -> list[dict[str, Any]]:
     return [_row_to_dict(row, columns) for row in rows]
 
 
+def _activity_text(activity: dict[str, Any]) -> str:
+    text = str(activity.get("activity_text") or "").strip()
+    if text:
+        return text
+    return f"Read the activity titled '{activity['title']}' and answer the tutor question."
+
+
+def _load_activity(
+    cursor: Any,
+    course_id: str,
+    activity_no: int,
+) -> dict[str, Any]:
+    cursor.execute(
+        """
+        SELECT course_id, activity_no, title, activity_text, status
+        FROM activities
+        WHERE LOWER(course_id) = LOWER(%s)
+          AND activity_no = %s
+        """,
+        (course_id, activity_no),
+    )
+
+    activity = _fetch_one_as_dict(cursor)
+    if activity is None:
+        raise ActivityAccessError("Activity was not found")
+
+    return activity
+
+
+def _ensure_active_activity(activity: dict[str, Any]) -> None:
+    if activity["status"] == "NOT_STARTED":
+        raise ActivityAccessError("Activity is not active yet")
+
+    if activity["status"] == "ENDED":
+        raise ActivityAccessError("Activity has ended")
+
+
+def _clean_answer(answer: str | None) -> str:
+    cleaned = (answer or "").strip()
+    if not cleaned:
+        raise EnglishResponseError("Answer is required before continuing")
+    return cleaned
+
+
+def _looks_like_english(answer: str) -> bool:
+    if any(character in _TURKISH_CHARACTERS for character in answer):
+        return False
+
+    letters = [character for character in answer if character.isalpha()]
+    if len(letters) < 3:
+        return False
+
+    ascii_letters = sum(1 for character in letters if character.isascii())
+    if ascii_letters / len(letters) < 0.85:
+        return False
+
+    words = {
+        word
+        for word in re.findall(r"[a-zA-Z]+", answer.lower())
+        if len(word) > 1
+    }
+    if words & _COMMON_NON_ENGLISH_WORDS:
+        return False
+
+    return True
+
+
+def _require_english_answer(answer: str | None) -> str:
+    cleaned = _clean_answer(answer)
+    if not _looks_like_english(cleaned):
+        raise EnglishResponseError("Please answer in English before continuing")
+    return cleaned
+
+
+def _load_progress(
+    cursor: Any,
+    course_id: str,
+    activity_no: int,
+    student_email: str,
+) -> dict[str, Any] | None:
+    cursor.execute(
+        """
+        SELECT student_email, course_id, activity_no, step_no, status, last_question, history
+        FROM student_activity_progress
+        WHERE LOWER(student_email) = LOWER(%s)
+          AND LOWER(course_id) = LOWER(%s)
+          AND activity_no = %s
+        """,
+        (student_email, course_id, activity_no),
+    )
+    return _fetch_one_as_dict(cursor)
+
+
+def _decode_history(progress: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not progress:
+        return []
+
+    try:
+        history = json.loads(progress.get("history") or "[]")
+    except json.JSONDecodeError:
+        return []
+
+    if isinstance(history, list):
+        return [item for item in history if isinstance(item, dict)]
+
+    return []
+
+
+def _answer_focus(answer: str | None) -> str:
+    if not answer:
+        return "your answer"
+
+    words = [
+        word
+        for word in re.findall(r"[a-zA-Z]+", answer.lower())
+        if len(word) > 3 and word not in _QUESTION_FOCUS_STOP_WORDS
+    ]
+    if not words:
+        return "your answer"
+
+    unique_words = list(dict.fromkeys(words))
+    return " ".join(unique_words[:3])
+
+
+def _generate_tutoring_question(
+    activity: dict[str, Any],
+    step_no: int,
+    previous_answer: str | None = None,
+) -> str:
+    if step_no == 0:
+        return "What is the main idea of this activity?"
+
+    answer_focus = _answer_focus(previous_answer)
+    if step_no == 1:
+        return f"Which detail from the activity best supports your point about {answer_focus}?"
+
+    if step_no == 2:
+        return f"How would you apply your point about {answer_focus} in your project?"
+
+    if previous_answer:
+        return f"What is one improvement you can make to your point about {answer_focus}?"
+
+    return "What should you focus on next in this activity?"
+
+
+def _tutoring_response(
+    activity: dict[str, Any],
+    progress_status: str,
+    step_no: int,
+    question: str | None,
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "course_id": activity["course_id"],
+        "activity_no": activity["activity_no"],
+        "title": activity["title"],
+        "activity_text": _activity_text(activity),
+        "status": activity["status"],
+        "step_no": step_no,
+        "progress_status": progress_status,
+        "question": question,
+        "message": message,
+    }
+
+
 def initialize_activity_schema() -> None:
     with _db_connection() as connection:
         with connection.cursor() as cursor:
@@ -162,8 +372,34 @@ def initialize_activity_schema() -> None:
                     course_id TEXT NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
                     activity_no INTEGER NOT NULL,
                     title TEXT NOT NULL,
+                    activity_text TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL CHECK (status IN ('NOT_STARTED', 'ACTIVE', 'ENDED')),
                     UNIQUE (course_id, activity_no)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE activities
+                ADD COLUMN IF NOT EXISTS activity_text TEXT NOT NULL DEFAULT ''
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS student_activity_progress (
+                    progress_id BIGSERIAL PRIMARY KEY,
+                    student_email TEXT NOT NULL,
+                    course_id TEXT NOT NULL,
+                    activity_no INTEGER NOT NULL,
+                    step_no INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL CHECK (status IN ('IN_PROGRESS', 'COMPLETED')),
+                    last_question TEXT,
+                    history TEXT NOT NULL DEFAULT '[]',
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (student_email, course_id, activity_no),
+                    FOREIGN KEY (course_id, activity_no)
+                        REFERENCES activities(course_id, activity_no)
+                        ON DELETE CASCADE
                 )
                 """
             )
@@ -173,9 +409,24 @@ def seed_demo_activity_data() -> None:
     course_id = _demo_course_id()
     course_name = _demo_course_name()
     activities = (
-        (1, "Project proposal", "NOT_STARTED"),
-        (2, "Requirements analysis", "ACTIVE"),
-        (3, "Sprint planning", "ENDED"),
+        (
+            1,
+            "Project proposal",
+            "NOT_STARTED",
+            "Read the project proposal prompt and prepare to explain the problem, target users, and success criteria.",
+        ),
+        (
+            2,
+            "Requirements analysis",
+            "ACTIVE",
+            "Review the requirements analysis activity. Focus on identifying functional requirements, non-functional requirements, and unclear assumptions.",
+        ),
+        (
+            3,
+            "Sprint planning",
+            "ENDED",
+            "Reflect on sprint planning by connecting backlog items to concrete tasks, owners, and acceptance criteria.",
+        ),
     )
 
     with _db_connection() as connection:
@@ -209,16 +460,17 @@ def seed_demo_activity_data() -> None:
                     (student_email, course_id),
                 )
 
-            for activity_no, title, status in activities:
+            for activity_no, title, status, activity_text in activities:
                 cursor.execute(
                     """
-                    INSERT INTO activities (course_id, activity_no, title, status)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO activities (course_id, activity_no, title, status, activity_text)
+                    VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT (course_id, activity_no) DO UPDATE
                     SET title = EXCLUDED.title,
-                        status = EXCLUDED.status
+                        status = EXCLUDED.status,
+                        activity_text = EXCLUDED.activity_text
                     """,
-                    (course_id, activity_no, title, status),
+                    (course_id, activity_no, title, status, activity_text),
                 )
 
 
@@ -379,34 +631,206 @@ def get_active_activity_for_student(
                 user_email=student_email,
             )
 
-            # Hide objectives from student:
-            # Only safe student-facing fields are selected and returned.
-            cursor.execute(
-                """
-                SELECT course_id, activity_no, title, status
-                FROM activities
-                WHERE LOWER(course_id) = LOWER(%s)
-                  AND activity_no = %s
-                """,
-                (course_id_from_db, activity_no),
-            )
-
-            activity = _fetch_one_as_dict(cursor)
-
-            if activity is None:
-                raise ActivityAccessError("Activity was not found")
-
-            if activity["status"] == "NOT_STARTED":
-                raise ActivityAccessError("Activity is not active yet")
-
-            if activity["status"] == "ENDED":
-                raise ActivityAccessError("Activity has ended")
+            activity = _load_activity(cursor, course_id_from_db, activity_no)
+            _ensure_active_activity(activity)
 
             return {
                 "course_id": activity["course_id"],
                 "activity_no": activity["activity_no"],
                 "title": activity["title"],
+                "activity_text": _activity_text(activity),
                 "status": activity["status"],
+            }
+
+
+def run_tutoring_turn(
+    course_id: str,
+    activity_no: int,
+    student_email: str,
+    answer: str | None = None,
+) -> dict[str, Any]:
+    with _db_connection() as connection:
+        with connection.cursor() as cursor:
+            course_id_from_db = _validate_course_ownership(
+                cursor=cursor,
+                course_id=course_id,
+                role="student",
+                user_email=student_email,
+            )
+            activity = _load_activity(cursor, course_id_from_db, activity_no)
+            _ensure_active_activity(activity)
+
+            progress = _load_progress(
+                cursor=cursor,
+                course_id=course_id_from_db,
+                activity_no=activity_no,
+                student_email=student_email,
+            )
+
+            if progress is None:
+                question = _generate_tutoring_question(activity, step_no=0)
+                cursor.execute(
+                    """
+                    INSERT INTO student_activity_progress (
+                        student_email,
+                        course_id,
+                        activity_no,
+                        step_no,
+                        status,
+                        last_question,
+                        history
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        student_email,
+                        course_id_from_db,
+                        activity_no,
+                        0,
+                        "IN_PROGRESS",
+                        question,
+                        "[]",
+                    ),
+                )
+                return _tutoring_response(
+                    activity=activity,
+                    progress_status="IN_PROGRESS",
+                    step_no=0,
+                    question=question,
+                    message="Activity text is shown before the first tutor question",
+                )
+
+            if progress["status"] == "COMPLETED":
+                return _tutoring_response(
+                    activity=activity,
+                    progress_status="COMPLETED",
+                    step_no=progress["step_no"],
+                    question=None,
+                    message="Tutoring flow is already completed",
+                )
+
+            if answer is None:
+                return _tutoring_response(
+                    activity=activity,
+                    progress_status=progress["status"],
+                    step_no=progress["step_no"],
+                    question=progress["last_question"],
+                    message="Answer the current question to continue",
+                )
+
+            cleaned_answer = _require_english_answer(answer)
+            history = _decode_history(progress)
+            history.append(
+                {
+                    "step_no": progress["step_no"],
+                    "question": progress["last_question"],
+                    "answer": cleaned_answer,
+                }
+            )
+
+            next_step_no = progress["step_no"] + 1
+            if next_step_no >= MAX_TUTORING_STEPS:
+                next_status = "COMPLETED"
+                next_question = None
+                message = "Tutoring flow completed"
+            else:
+                next_status = "IN_PROGRESS"
+                next_question = _generate_tutoring_question(
+                    activity=activity,
+                    step_no=next_step_no,
+                    previous_answer=cleaned_answer,
+                )
+                message = "Follow-up question generated"
+
+            cursor.execute(
+                """
+                UPDATE student_activity_progress
+                SET step_no = %s,
+                    status = %s,
+                    last_question = %s,
+                    history = %s,
+                    updated_at = NOW()
+                WHERE LOWER(student_email) = LOWER(%s)
+                  AND LOWER(course_id) = LOWER(%s)
+                  AND activity_no = %s
+                """,
+                (
+                    next_step_no,
+                    next_status,
+                    next_question,
+                    json.dumps(history),
+                    student_email,
+                    course_id_from_db,
+                    activity_no,
+                ),
+            )
+
+            return _tutoring_response(
+                activity=activity,
+                progress_status=next_status,
+                step_no=next_step_no,
+                question=next_question,
+                message=message,
+            )
+
+
+def _update_activity_in_db(
+    course_id: str,
+    activity_no: int,
+    updates: Dict[str, Any],
+    role: str,
+    user_email: str,
+) -> Dict[str, Any]:
+    allowed_fields = {"title", "status", "activity_text"}
+    update_values = {
+        key: value
+        for key, value in updates.items()
+        if key in allowed_fields and value is not None
+    }
+
+    if not update_values:
+        raise ActivityAccessError("No supported activity updates were provided")
+
+    if "status" in update_values and update_values["status"] not in {
+        "NOT_STARTED",
+        "ACTIVE",
+        "ENDED",
+    }:
+        raise ActivityAccessError("Unsupported activity status")
+
+    with _db_connection() as connection:
+        with connection.cursor() as cursor:
+            course_id_from_db = _validate_course_ownership(
+                cursor=cursor,
+                course_id=course_id,
+                role=role,
+                user_email=user_email,
+            )
+            _load_activity(cursor, course_id_from_db, activity_no)
+
+            assignments = ", ".join(f"{field} = %s" for field in update_values)
+            values = list(update_values.values())
+            cursor.execute(
+                f"""
+                UPDATE activities
+                SET {assignments}
+                WHERE LOWER(course_id) = LOWER(%s)
+                  AND activity_no = %s
+                RETURNING course_id, activity_no, title, activity_text, status
+                """,
+                (*values, course_id_from_db, activity_no),
+            )
+
+            updated_activity = _fetch_one_as_dict(cursor)
+            if updated_activity is None:
+                raise ActivityAccessError("Activity was not found")
+
+            return {
+                "course_id": updated_activity["course_id"],
+                "activity_no": updated_activity["activity_no"],
+                "title": updated_activity["title"],
+                "activity_text": _activity_text(updated_activity),
+                "status": updated_activity["status"],
             }
 
 
@@ -417,12 +841,10 @@ def update_activity(
     role: str,
     user_email: str,
 ) -> Dict[str, Any]:
-    try:
-        return {
-            "course_id": course_id,
-            "activity_no": activity_no,
-            "title": f"Activity {activity_no}",
-            "status": updates.get("status", "UNKNOWN"),
-        }
-    except Exception as e:
-        raise Exception(f"Aktivite güncellenirken hata oluştu: {str(e)}")
+    return _update_activity_in_db(
+        course_id=course_id,
+        activity_no=activity_no,
+        updates=updates,
+        role=role,
+        user_email=user_email,
+    )
