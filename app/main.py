@@ -1,5 +1,5 @@
 import logging
-from typing import Annotated, Optional, Dict, Any
+from typing import Annotated, Optional, Dict, Any, NoReturn
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +11,7 @@ from app.services import (
     CourseAccessError,
     CourseNotFoundError,
     DatabaseConfigError,
+    EnglishResponseError,
     InstructorUser,
     StudentUser,
     get_active_activity_for_student,
@@ -19,6 +20,7 @@ from app.services import (
     list_activities,
     map_to_instructor_account,
     map_to_student_account,
+    run_tutoring_turn,
     seed_demo_activity_data,
     student_google_login,
     update_activity,
@@ -52,7 +54,24 @@ class StudentActivityAccessResponse(BaseModel):
     course_id: str
     activity_no: int
     title: str
+    activity_text: str
     status: str
+
+
+class TutoringTurnRequest(BaseModel):
+    answer: Optional[str] = None
+
+
+class TutoringTurnResponse(BaseModel):
+    course_id: str
+    activity_no: int
+    title: str
+    activity_text: str
+    status: str
+    step_no: int
+    progress_status: str
+    question: Optional[str] = None
+    message: str
 
 
 @app.on_event("startup")
@@ -192,6 +211,35 @@ def get_student_activity(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.post(
+    "/student/courses/{course_id}/activities/{activity_no}/tutoring-turn",
+    response_model=TutoringTurnResponse,
+)
+def post_student_tutoring_turn(
+    course_id: str,
+    activity_no: int,
+    request: TutoringTurnRequest,
+    student: Annotated[StudentUser, Depends(require_student)],
+) -> Dict[str, Any]:
+    try:
+        return run_tutoring_turn(
+            course_id=course_id,
+            activity_no=activity_no,
+            student_email=student.email,
+            answer=request.answer,
+        )
+    except CourseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CourseAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ActivityAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except EnglishResponseError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except DatabaseConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get(
     "/instructor/courses/{course_id}/activities",
     response_model=list[ActivityResponse],
@@ -214,6 +262,18 @@ def list_instructor_activities(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+def _raise_activity_update_http_error(exc: Exception) -> NoReturn:
+    if isinstance(exc, CourseNotFoundError):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, CourseAccessError):
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if isinstance(exc, ActivityAccessError):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if isinstance(exc, DatabaseConfigError):
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post(
     "/instructor/courses/{course_id}/activities/{activity_no}/start",
     response_model=ActivityResponse,
@@ -232,7 +292,7 @@ def start_instructor_activity(
             user_email=instructor.email,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _raise_activity_update_http_error(exc)
 
 
 @app.post(
@@ -253,4 +313,4 @@ def end_instructor_activity(
             user_email=instructor.email,
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _raise_activity_update_http_error(exc)
