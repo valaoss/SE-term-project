@@ -71,13 +71,6 @@ _QUESTION_FOCUS_STOP_WORDS = {
     "with",
 }
 
-# Mini-lessons shown after each objective is achieved (index = step_no)
-_MINI_LESSONS = [
-    "Mini-lesson: Break complex topics into smaller ideas before answering.",
-    "Mini-lesson: Always connect your answer back to the activity context.",
-    "Mini-lesson: Review your previous answers to deepen your understanding.",
-]
-
 
 @dataclass(frozen=True)
 class InstructorUser:
@@ -260,8 +253,7 @@ def _load_progress(
 ) -> dict[str, Any] | None:
     cursor.execute(
         """
-        SELECT student_email, course_id, activity_no, step_no, status,
-               last_question, history, score, achieved_objectives
+        SELECT student_email, course_id, activity_no, step_no, status, last_question, history
         FROM student_activity_progress
         WHERE LOWER(student_email) = LOWER(%s)
           AND LOWER(course_id) = LOWER(%s)
@@ -285,43 +277,6 @@ def _decode_history(progress: dict[str, Any] | None) -> list[dict[str, Any]]:
         return [item for item in history if isinstance(item, dict)]
 
     return []
-
-
-# --- US-K Scoring: Track objectives per student ---
-def _decode_achieved_objectives(progress: dict[str, Any] | None) -> list[int]:
-    """Return the list of step_no values that have already been scored."""
-    if not progress:
-        return []
-    try:
-        objectives = json.loads(progress.get("achieved_objectives") or "[]")
-    except json.JSONDecodeError:
-        return []
-    if isinstance(objectives, list):
-        return [o for o in objectives if isinstance(o, int)]
-    return []
-
-
-# --- US-K Scoring: Log every score change ---
-def _log_score_change(
-    cursor: Any,
-    student_email: str,
-    course_id: str,
-    activity_no: int,
-    step_no: int,
-    new_score: int,
-) -> None:
-    cursor.execute(
-        """
-        INSERT INTO score_logs (student_email, course_id, activity_no, step_no, new_score)
-        VALUES (%s, %s, %s, %s, %s)
-        """,
-        (student_email, course_id, activity_no, step_no, new_score),
-    )
-
-
-# --- US-K Scoring: Trigger mini-lesson after scoring ---
-def _generate_mini_lesson(step_no: int) -> str:
-    return _MINI_LESSONS[step_no % len(_MINI_LESSONS)]
 
 
 def _answer_focus(answer: str | None) -> str:
@@ -367,7 +322,6 @@ def _tutoring_response(
     step_no: int,
     question: str | None,
     message: str,
-    score: int = 0,  # US-K Scoring: Announce updated score
 ) -> dict[str, Any]:
     return {
         "course_id": activity["course_id"],
@@ -379,7 +333,6 @@ def _tutoring_response(
         "progress_status": progress_status,
         "question": question,
         "message": message,
-        "score": score,
     }
 
 
@@ -442,40 +395,11 @@ def initialize_activity_schema() -> None:
                     status TEXT NOT NULL CHECK (status IN ('IN_PROGRESS', 'COMPLETED')),
                     last_question TEXT,
                     history TEXT NOT NULL DEFAULT '[]',
-                    score INTEGER NOT NULL DEFAULT 0,
-                    achieved_objectives TEXT NOT NULL DEFAULT '[]',
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     UNIQUE (student_email, course_id, activity_no),
                     FOREIGN KEY (course_id, activity_no)
                         REFERENCES activities(course_id, activity_no)
                         ON DELETE CASCADE
-                )
-                """
-            )
-            # Migrate existing tables that may not have the scoring columns yet
-            cursor.execute(
-                """
-                ALTER TABLE student_activity_progress
-                ADD COLUMN IF NOT EXISTS score INTEGER NOT NULL DEFAULT 0
-                """
-            )
-            cursor.execute(
-                """
-                ALTER TABLE student_activity_progress
-                ADD COLUMN IF NOT EXISTS achieved_objectives TEXT NOT NULL DEFAULT '[]'
-                """
-            )
-            # US-K Scoring: Log every score change
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS score_logs (
-                    log_id BIGSERIAL PRIMARY KEY,
-                    student_email TEXT NOT NULL,
-                    course_id TEXT NOT NULL,
-                    activity_no INTEGER NOT NULL,
-                    step_no INTEGER NOT NULL,
-                    new_score INTEGER NOT NULL,
-                    logged_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
                 """
             )
@@ -754,11 +678,9 @@ def run_tutoring_turn(
                         step_no,
                         status,
                         last_question,
-                        history,
-                        score,
-                        achieved_objectives
+                        history
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         student_email,
@@ -768,8 +690,6 @@ def run_tutoring_turn(
                         "IN_PROGRESS",
                         question,
                         "[]",
-                        0,
-                        "[]",
                     ),
                 )
                 return _tutoring_response(
@@ -778,7 +698,6 @@ def run_tutoring_turn(
                     step_no=0,
                     question=question,
                     message="Activity text is shown before the first tutor question",
-                    score=0,
                 )
 
             if progress["status"] == "COMPLETED":
@@ -788,7 +707,6 @@ def run_tutoring_turn(
                     step_no=progress["step_no"],
                     question=None,
                     message="Tutoring flow is already completed",
-                    score=progress.get("score", 0),
                 )
 
             if answer is None:
@@ -798,7 +716,6 @@ def run_tutoring_turn(
                     step_no=progress["step_no"],
                     question=progress["last_question"],
                     message="Answer the current question to continue",
-                    score=progress.get("score", 0),
                 )
 
             cleaned_answer = _require_english_answer(answer)
@@ -811,42 +728,11 @@ def run_tutoring_turn(
                 }
             )
 
-            # --- US-K Scoring: Add +1 on first achievement / Prevent duplicate scoring ---
-            achieved_objectives = _decode_achieved_objectives(progress)
-            current_score = progress.get("score", 0)
-            mini_lesson = ""
-
-            completed_step = progress["step_no"]
-            if completed_step not in achieved_objectives:
-                achieved_objectives.append(completed_step)
-                current_score += 1
-                # US-K Scoring: Log every score change
-                _log_score_change(
-                    cursor=cursor,
-                    student_email=student_email,
-                    course_id=course_id_from_db,
-                    activity_no=activity_no,
-                    step_no=completed_step,
-                    new_score=current_score,
-                )
-                # US-K Scoring: Trigger mini-lesson after scoring
-                mini_lesson = _generate_mini_lesson(completed_step)
-
             next_step_no = progress["step_no"] + 1
-
-            # --- US-K Scoring: Stop when all objectives done ---
-            if current_score >= MAX_TUTORING_STEPS:
+            if next_step_no >= MAX_TUTORING_STEPS:
                 next_status = "COMPLETED"
                 next_question = None
-                message = f"All objectives completed! Score: {current_score}/{MAX_TUTORING_STEPS}."
-                if mini_lesson:
-                    message = f"{message} {mini_lesson}"
-            elif next_step_no >= MAX_TUTORING_STEPS:
-                next_status = "COMPLETED"
-                next_question = None
-                message = f"Tutoring flow completed. Score: {current_score}/{MAX_TUTORING_STEPS}."
-                if mini_lesson:
-                    message = f"{message} {mini_lesson}"
+                message = "Tutoring flow completed"
             else:
                 next_status = "IN_PROGRESS"
                 next_question = _generate_tutoring_question(
@@ -854,9 +740,7 @@ def run_tutoring_turn(
                     step_no=next_step_no,
                     previous_answer=cleaned_answer,
                 )
-                message = f"Follow-up question generated. Score: {current_score}/{MAX_TUTORING_STEPS}."
-                if mini_lesson:
-                    message = f"{message} {mini_lesson}"
+                message = "Follow-up question generated"
 
             cursor.execute(
                 """
@@ -865,8 +749,6 @@ def run_tutoring_turn(
                     status = %s,
                     last_question = %s,
                     history = %s,
-                    score = %s,
-                    achieved_objectives = %s,
                     updated_at = NOW()
                 WHERE LOWER(student_email) = LOWER(%s)
                   AND LOWER(course_id) = LOWER(%s)
@@ -877,8 +759,6 @@ def run_tutoring_turn(
                     next_status,
                     next_question,
                     json.dumps(history),
-                    current_score,
-                    json.dumps(achieved_objectives),
                     student_email,
                     course_id_from_db,
                     activity_no,
@@ -891,7 +771,6 @@ def run_tutoring_turn(
                 step_no=next_step_no,
                 question=next_question,
                 message=message,
-                score=current_score,
             )
 
 

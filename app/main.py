@@ -72,7 +72,6 @@ class TutoringTurnResponse(BaseModel):
     progress_status: str
     question: Optional[str] = None
     message: str
-    score: int = 0  # US-K Scoring: Announce updated score
 
 
 @app.on_event("startup")
