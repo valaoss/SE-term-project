@@ -18,6 +18,7 @@ from app.services import (
     initialize_activity_schema,
     instructor_google_login,
     list_activities,
+    manual_grade_activity,
     map_to_instructor_account,
     map_to_student_account,
     run_tutoring_turn,
@@ -73,6 +74,21 @@ class TutoringTurnResponse(BaseModel):
     question: Optional[str] = None
     message: str
     score: int = 0  # US-K Scoring: Announce updated score
+
+
+class ManualGradeRequest(BaseModel):
+    student_email: str
+    score: int
+    reason: Optional[str] = None
+
+
+class ManualGradeResponse(BaseModel):
+    course_id: str
+    activity_no: int
+    student_email: str
+    score: int
+    old_score: Optional[int] = None
+    graded_by: str
 
 
 @app.on_event("startup")
@@ -312,6 +328,29 @@ def end_instructor_activity(
             updates={"status": "ENDED"},
             role="instructor",
             user_email=instructor.email,
+        )
+    except Exception as exc:
+        _raise_activity_update_http_error(exc)
+
+
+@app.post(
+    "/instructor/courses/{course_id}/activities/{activity_no}/manual-grade",
+    response_model=ManualGradeResponse,
+)
+def post_manual_grade(
+    course_id: str,
+    activity_no: int,
+    request: ManualGradeRequest,
+    instructor: Annotated[InstructorUser, Depends(require_instructor)],
+) -> Dict[str, Any]:
+    try:
+        return manual_grade_activity(
+            course_id=course_id,
+            activity_no=activity_no,
+            student_email=request.student_email,
+            score=request.score,
+            instructor_email=instructor.email,
+            reason=request.reason,
         )
     except Exception as exc:
         _raise_activity_update_http_error(exc)
