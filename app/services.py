@@ -319,6 +319,41 @@ def _log_score_change(
     )
 
 
+def _log_manual_grading_event(
+    cursor: Any,
+    instructor_email: str,
+    student_email: str,
+    course_id: str,
+    activity_no: int,
+    old_score: int | None,
+    new_score: int,
+    reason: str | None,
+) -> None:
+    cursor.execute(
+        """
+        INSERT INTO manual_grading_events (
+            instructor_email,
+            student_email,
+            course_id,
+            activity_no,
+            old_score,
+            new_score,
+            reason
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            instructor_email,
+            student_email,
+            course_id,
+            activity_no,
+            old_score,
+            new_score,
+            reason,
+        ),
+    )
+
+
 # --- US-K Scoring: Trigger mini-lesson after scoring ---
 def _generate_mini_lesson(step_no: int) -> str:
     return _MINI_LESSONS[step_no % len(_MINI_LESSONS)]
@@ -475,6 +510,21 @@ def initialize_activity_schema() -> None:
                     activity_no INTEGER NOT NULL,
                     step_no INTEGER NOT NULL,
                     new_score INTEGER NOT NULL,
+                    logged_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS manual_grading_events (
+                    event_id BIGSERIAL PRIMARY KEY,
+                    instructor_email TEXT NOT NULL,
+                    student_email TEXT NOT NULL,
+                    course_id TEXT NOT NULL,
+                    activity_no INTEGER NOT NULL,
+                    old_score INTEGER,
+                    new_score INTEGER NOT NULL,
+                    reason TEXT,
                     logged_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
                 """
@@ -969,3 +1019,109 @@ def update_activity(
         role=role,
         user_email=user_email,
     )
+
+
+def manual_grade_activity(
+    course_id: str,
+    activity_no: int,
+    student_email: str,
+    score: int,
+    instructor_email: str,
+    reason: str | None = None,
+) -> Dict[str, Any]:
+    normalized_student_email = student_email.strip().lower()
+    if not normalized_student_email:
+        raise ActivityAccessError("Student email is required")
+
+    if score < 0 or score > MAX_TUTORING_STEPS:
+        raise ActivityAccessError(f"Score must be between 0 and {MAX_TUTORING_STEPS}")
+
+    clean_reason = reason.strip() if reason else None
+
+    with _db_connection() as connection:
+        with connection.cursor() as cursor:
+            course_id_from_db = _validate_course_ownership(
+                cursor=cursor,
+                course_id=course_id,
+                role="instructor",
+                user_email=instructor_email,
+            )
+            _validate_course_ownership(
+                cursor=cursor,
+                course_id=course_id_from_db,
+                role="student",
+                user_email=normalized_student_email,
+            )
+            _load_activity(cursor, course_id_from_db, activity_no)
+
+            progress = _load_progress(
+                cursor=cursor,
+                course_id=course_id_from_db,
+                activity_no=activity_no,
+                student_email=normalized_student_email,
+            )
+            old_score = progress.get("score") if progress else None
+            status = "COMPLETED" if score >= MAX_TUTORING_STEPS else "IN_PROGRESS"
+
+            cursor.execute(
+                """
+                INSERT INTO student_activity_progress (
+                    student_email,
+                    course_id,
+                    activity_no,
+                    step_no,
+                    status,
+                    last_question,
+                    history,
+                    score,
+                    achieved_objectives,
+                    updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, %s, NOW())
+                ON CONFLICT (student_email, course_id, activity_no)
+                DO UPDATE SET score = EXCLUDED.score,
+                              updated_at = NOW()
+                RETURNING student_email, course_id, activity_no, score
+                """,
+                (
+                    normalized_student_email,
+                    course_id_from_db,
+                    activity_no,
+                    progress["step_no"] if progress else 0,
+                    progress["status"] if progress else status,
+                    progress["history"] if progress else "[]",
+                    score,
+                    progress["achieved_objectives"] if progress else "[]",
+                ),
+            )
+            graded_progress = _fetch_one_as_dict(cursor)
+            if graded_progress is None:
+                raise ActivityAccessError("Manual grade could not be saved")
+
+            _log_score_change(
+                cursor=cursor,
+                student_email=normalized_student_email,
+                course_id=course_id_from_db,
+                activity_no=activity_no,
+                step_no=progress["step_no"] if progress else 0,
+                new_score=score,
+            )
+            _log_manual_grading_event(
+                cursor=cursor,
+                instructor_email=instructor_email,
+                student_email=normalized_student_email,
+                course_id=course_id_from_db,
+                activity_no=activity_no,
+                old_score=old_score,
+                new_score=score,
+                reason=clean_reason,
+            )
+
+            return {
+                "course_id": graded_progress["course_id"],
+                "activity_no": graded_progress["activity_no"],
+                "student_email": graded_progress["student_email"],
+                "score": graded_progress["score"],
+                "old_score": old_score,
+                "graded_by": instructor_email,
+            }
