@@ -131,6 +131,16 @@ class ActivityUpdateRequest(BaseModel):
     status: Optional[str] = None
 
 
+class ResetActivityResponse(BaseModel):
+    course_id: str
+    activity_no: int
+    title: str
+    status: str
+    deleted_score_logs: int
+    deleted_student_progress: int
+    deleted_manual_grades: int
+
+
 @app.on_event("startup")
 def create_activity_table() -> None:
     try:
@@ -494,6 +504,24 @@ def post_manual_grade(
             score=request.score,
             instructor_email=instructor.email,
             reason=request.reason,
+        )
+    except Exception as exc:
+        _raise_activity_update_http_error(exc)
+
+@app.post(
+    "/instructor/courses/{course_id}/activities/{activity_no}/reset",
+    response_model=ResetActivityResponse,
+)
+def reset_instructor_activity(
+    course_id: str,
+    activity_no: int,
+    instructor: Annotated[InstructorUser, Depends(require_instructor)],
+) -> Dict[str, Any]:
+    try:
+        return reset_activity(
+            course_id=course_id,
+            activity_no=activity_no,
+            instructor_email=instructor.email,
         )
     except Exception as exc:
         _raise_activity_update_http_error(exc)

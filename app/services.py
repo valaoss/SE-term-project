@@ -2224,3 +2224,74 @@ def manual_grade_activity(
                 "old_score": old_score,
                 "graded_by": instructor_email,
             }
+
+def reset_activity(
+    course_id: str,
+    activity_no: int,
+    instructor_email: str,
+) -> Dict[str, Any]:
+    with _db_connection() as connection:
+        with connection.cursor() as cursor:
+            course_id_from_db = _validate_course_ownership(
+                cursor=cursor,
+                course_id=course_id,
+                role="instructor",
+                user_email=instructor_email,
+            )
+
+            _load_activity(cursor, course_id_from_db, activity_no)
+
+            cursor.execute(
+                """
+                DELETE FROM score_logs
+                WHERE LOWER(course_id) = LOWER(%s)
+                  AND activity_no = %s
+                """,
+                (course_id_from_db, activity_no),
+            )
+            deleted_score_logs = cursor.rowcount
+
+            cursor.execute(
+                """
+                DELETE FROM student_activity_progress
+                WHERE LOWER(course_id) = LOWER(%s)
+                  AND activity_no = %s
+                """,
+                (course_id_from_db, activity_no),
+            )
+            deleted_student_progress = cursor.rowcount
+
+            cursor.execute(
+                """
+                DELETE FROM manual_grading_events
+                WHERE LOWER(course_id) = LOWER(%s)
+                  AND activity_no = %s
+                """,
+                (course_id_from_db, activity_no),
+            )
+            deleted_manual_grades = cursor.rowcount
+
+            cursor.execute(
+                """
+                UPDATE activities
+                SET status = 'ENDED'
+                WHERE LOWER(course_id) = LOWER(%s)
+                  AND activity_no = %s
+                RETURNING course_id, activity_no, title, activity_text, status
+                """,
+                (course_id_from_db, activity_no),
+            )
+
+            reset_activity_row = _fetch_one_as_dict(cursor)
+            if reset_activity_row is None:
+                raise ActivityAccessError("Activity could not be reset")
+
+            return {
+                "course_id": reset_activity_row["course_id"],
+                "activity_no": reset_activity_row["activity_no"],
+                "title": reset_activity_row["title"],
+                "status": reset_activity_row["status"],
+                "deleted_score_logs": deleted_score_logs,
+                "deleted_student_progress": deleted_student_progress,
+                "deleted_manual_grades": deleted_manual_grades,
+            }
