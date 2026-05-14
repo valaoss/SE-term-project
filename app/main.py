@@ -1,8 +1,13 @@
 import logging
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 from typing import Annotated, Optional, Dict, Any, NoReturn
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.services import (
@@ -14,13 +19,17 @@ from app.services import (
     EnglishResponseError,
     InstructorUser,
     StudentUser,
+    create_activity,
     get_active_activity_for_student,
     initialize_activity_schema,
     instructor_google_login,
     list_activities,
+    list_courses,
     manual_grade_activity,
     map_to_instructor_account,
     map_to_student_account,
+    tutoring_provider_status,
+    reset_activity,
     run_tutoring_turn,
     seed_demo_activity_data,
     student_google_login,
@@ -30,6 +39,8 @@ from app.services import (
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,6 +49,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 class GoogleLoginRequest(BaseModel):
@@ -48,7 +62,17 @@ class ActivityResponse(BaseModel):
     course_id: str
     activity_no: int
     title: str
+    activity_text: Optional[str] = None
     status: str
+
+
+class CourseResponse(BaseModel):
+    course_id: str
+    name: str
+
+
+class InstructorActivityResponse(ActivityResponse):
+    learning_objectives: list[str] = []
 
 
 class StudentActivityAccessResponse(BaseModel):
@@ -74,6 +98,8 @@ class TutoringTurnResponse(BaseModel):
     question: Optional[str] = None
     message: str
     score: int = 0  # US-K Scoring: Announce updated score
+    related_topics: list[str] = []
+    alternative_techniques: list[str] = []
 
 
 class ManualGradeRequest(BaseModel):
@@ -89,6 +115,20 @@ class ManualGradeResponse(BaseModel):
     score: int
     old_score: Optional[int] = None
     graded_by: str
+
+
+class ActivityCreateRequest(BaseModel):
+    activity_no: int
+    title: str
+    activity_text: str
+    learning_objectives: list[str]
+
+
+class ActivityUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    activity_text: Optional[str] = None
+    learning_objectives: Optional[list[str]] = None
+    status: Optional[str] = None
 
 
 @app.on_event("startup")
@@ -137,8 +177,18 @@ def require_student(
 
 
 @app.get("/")
-def read_root() -> Dict[str, bool]:
-    return {"ok": True}
+def read_root() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/login")
+def login_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "login.html")
+
+
+@app.get("/api/health")
+def health_check() -> Dict[str, Any]:
+    return {"ok": True, **tutoring_provider_status()}
 
 
 @app.post("/auth/google/instructor")
@@ -179,6 +229,36 @@ def verify_student_token(
         "email": student.email,
         "name": student.name,
     }
+
+
+@app.get(
+    "/instructor/courses",
+    response_model=list[CourseResponse],
+)
+def list_instructor_courses(
+    instructor: Annotated[InstructorUser, Depends(require_instructor)],
+) -> list[Dict[str, Any]]:
+    try:
+        return list_courses(role="instructor", user_email=instructor.email)
+    except CourseAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except DatabaseConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get(
+    "/student/courses",
+    response_model=list[CourseResponse],
+)
+def list_student_courses(
+    student: Annotated[StudentUser, Depends(require_student)],
+) -> list[Dict[str, Any]]:
+    try:
+        return list_courses(role="student", user_email=student.email)
+    except CourseAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except DatabaseConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.get(
@@ -259,7 +339,7 @@ def post_student_tutoring_turn(
 
 @app.get(
     "/instructor/courses/{course_id}/activities",
-    response_model=list[ActivityResponse],
+    response_model=list[InstructorActivityResponse],
 )
 def list_instructor_activities(
     course_id: str,
@@ -277,6 +357,50 @@ def list_instructor_activities(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except DatabaseConfigError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post(
+    "/instructor/courses/{course_id}/activities",
+    response_model=InstructorActivityResponse,
+)
+def create_instructor_activity(
+    course_id: str,
+    request: ActivityCreateRequest,
+    instructor: Annotated[InstructorUser, Depends(require_instructor)],
+) -> Dict[str, Any]:
+    try:
+        return create_activity(
+            course_id=course_id,
+            activity_no=request.activity_no,
+            title=request.title,
+            activity_text=request.activity_text,
+            learning_objectives=request.learning_objectives,
+            instructor_email=instructor.email,
+        )
+    except Exception as exc:
+        _raise_activity_update_http_error(exc)
+
+
+@app.patch(
+    "/instructor/courses/{course_id}/activities/{activity_no}",
+    response_model=InstructorActivityResponse,
+)
+def update_instructor_activity(
+    course_id: str,
+    activity_no: int,
+    request: ActivityUpdateRequest,
+    instructor: Annotated[InstructorUser, Depends(require_instructor)],
+) -> Dict[str, Any]:
+    try:
+        return update_activity(
+            course_id=course_id,
+            activity_no=activity_no,
+            updates=request.dict(exclude_unset=True),
+            role="instructor",
+            user_email=instructor.email,
+        )
+    except Exception as exc:
+        _raise_activity_update_http_error(exc)
 
 
 def _raise_activity_update_http_error(exc: Exception) -> NoReturn:
@@ -328,6 +452,25 @@ def end_instructor_activity(
             updates={"status": "ENDED"},
             role="instructor",
             user_email=instructor.email,
+        )
+    except Exception as exc:
+        _raise_activity_update_http_error(exc)
+
+
+@app.post(
+    "/instructor/courses/{course_id}/activities/{activity_no}/reset",
+    response_model=InstructorActivityResponse,
+)
+def reset_instructor_activity(
+    course_id: str,
+    activity_no: int,
+    instructor: Annotated[InstructorUser, Depends(require_instructor)],
+) -> Dict[str, Any]:
+    try:
+        return reset_activity(
+            course_id=course_id,
+            activity_no=activity_no,
+            instructor_email=instructor.email,
         )
     except Exception as exc:
         _raise_activity_update_http_error(exc)

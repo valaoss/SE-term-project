@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>InClass Platform</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">IC</div>
+          <div>
+            <h1>InClass</h1>
+            <p>Activity tutoring platform</p>
+          </div>
+        </div>
+
+        <section class="panel">
+          <label for="role">Role</label>
+          <select id="role">
+            <option value="instructor">Instructor</option>
+            <option value="student">Student</option>
+          </select>
+
+          <label for="email">MEF email</label>
+          <input id="email" type="email" value="instructor@mef.edu.tr">
+
+          <label for="token">Token</label>
+          <input id="token" type="text" placeholder="Google ID token or demo token">
+
+          <div class="button-row">
+            <button id="demoLogin" type="button">Demo login</button>
+            <button id="verifyLogin" type="button" class="secondary">Verify</button>
+          </div>
+          <p id="sessionState" class="status">Not signed in</p>
+          <button type="button" class="secondary" onclick="signOut()">Sign out</button>
+        </section>
+
+        <section class="panel">
+          <label for="courseSelect">Course</label>
+          <select id="courseSelect"></select>
+          <button id="refreshData" type="button" class="secondary">Refresh data</button>
+          <p id="aiState" class="status">Tutor: checking</p>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h2 id="workspaceTitle">Instructor workspace</h2>
+            <p id="workspaceSubtitle">Manage activities, state, scoring, and exceptions.</p>
+          </div>
+          <span id="apiState" class="pill">API idle</span>
+        </header>
+
+        <section id="instructorView" class="view-grid">
+          <div class="panel wide">
+            <div class="section-head">
+              <h3>Activities</h3>
+              <div class="button-row">
+                <button id="startActivity" type="button">Start</button>
+                <button id="endActivity" type="button" class="secondary">End</button>
+                <button id="resetActivity" type="button" class="danger">Reset</button>
+              </div>
+            </div>
+            <div id="activityList" class="activity-list"></div>
+          </div>
+
+          <form id="activityForm" class="panel form-panel">
+            <h3>Create or update activity</h3>
+            <label for="activityNo">Activity no</label>
+            <input id="activityNo" type="number" min="1" value="4">
+            <label for="activityTitle">Title</label>
+            <input id="activityTitle" type="text" placeholder="Activity title">
+            <label for="activityText">Activity text</label>
+            <textarea id="activityText" rows="7" placeholder="Student-facing activity text"></textarea>
+            <label for="objectives">Learning objectives</label>
+            <textarea id="objectives" rows="5" placeholder="One objective per line"></textarea>
+            <div class="button-row">
+              <button id="createActivity" type="button">Create</button>
+              <button id="updateActivity" type="button" class="secondary">Update</button>
+            </div>
+          </form>
+
+          <form id="gradeForm" class="panel form-panel">
+            <h3>Manual grade</h3>
+            <label for="gradeStudent">Student email</label>
+            <input id="gradeStudent" type="email" value="student@mef.edu.tr">
+            <label for="gradeScore">Score</label>
+            <input id="gradeScore" type="number" min="0" max="3" value="1">
+            <label for="gradeReason">Reason</label>
+            <textarea id="gradeReason" rows="4" placeholder="Exceptional grading reason"></textarea>
+            <button id="submitGrade" type="button">Submit grade</button>
+          </form>
+        </section>
+
+        <section id="studentView" class="student-view hidden">
+          <div class="panel">
+            <div class="section-head">
+              <h3>Available active work</h3>
+              <button id="openActivity" type="button">Open activity</button>
+            </div>
+            <div id="studentActivityList" class="activity-list"></div>
+          </div>
+
+          <div class="panel tutor-panel">
+            <div id="activityTextBox" class="activity-text">Select an ACTIVE activity.</div>
+            <div id="chatLog" class="chat-log"></div>
+            <div class="answer-row">
+              <textarea id="studentAnswer" rows="3" placeholder="Answer in English"></textarea>
+              <button id="sendAnswer" type="button">Send</button>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>InClass — Sign In</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet" />
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #080b14;
+    --surface: rgba(255,255,255,0.04);
+    --surface-hover: rgba(255,255,255,0.07);
+    --surface-border: rgba(255,255,255,0.08);
+    --text-primary: #f0f0f5;
+    --text-secondary: rgba(240,240,245,0.5);
+    --text-muted: rgba(240,240,245,0.28);
+    --accent: #8b5cf6;
+    --accent-soft: rgba(139,92,246,0.15);
+    --success: #34d399;
+    --font: 'DM Sans', system-ui, sans-serif;
+    --radius-sm: 10px;
+    --radius-xs: 8px;
+    --t: 0.18s ease;
+  }
+
+  html, body { height: 100%; }
+
+  body {
+    background: var(--bg);
+    font-family: var(--font);
+    color: var(--text-primary);
+    display: flex;
+    /* Static background — no animated blur */
+    background-image:
+      radial-gradient(ellipse 60% 50% at 75% 20%, rgba(139,92,246,0.12) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 40% at 20% 80%, rgba(6,182,212,0.08) 0%, transparent 60%);
+  }
+
+  /* ── LAYOUT ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 100vh;
+    width: 100%;
+  }
+
+  /* ── LEFT PANEL ── */
+  .left-panel {
+    display: flex; flex-direction: column;
+    justify-content: space-between;
+    padding: 48px 56px;
+    border-right: 1px solid rgba(255,255,255,0.045);
+  }
+
+  .left-header { display: flex; align-items: center; gap: 12px; }
+
+  .logo-mark {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .logo-mark svg { width: 20px; height: 20px; fill: #fff; }
+  .logo-text { font-size: 17px; font-weight: 600; letter-spacing: -0.3px; }
+  .logo-text span { color: var(--accent); }
+
+  .illustration-area {
+    flex: 1; display: flex; flex-direction: column;
+    justify-content: center; padding: 40px 0 32px;
+  }
+
+  .il-badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--accent-soft);
+    border: 1px solid rgba(139,92,246,0.25);
+    border-radius: 100px; padding: 5px 14px 5px 8px;
+    font-size: 12px; font-weight: 500; color: #c4b5fd;
+    width: fit-content; margin-bottom: 28px;
+  }
+  .il-badge-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); flex-shrink: 0;
+  }
+
+  .il-headline {
+    font-size: clamp(28px, 3vw, 40px);
+    font-weight: 600; line-height: 1.2;
+    letter-spacing: -0.8px;
+    margin-bottom: 16px;
+  }
+  .il-headline .grad {
+    background: linear-gradient(135deg, #c4b5fd 0%, #8b5cf6 50%, #06b6d4 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .il-sub {
+    font-size: 15px; line-height: 1.65;
+    color: var(--text-secondary);
+    max-width: 360px; margin-bottom: 36px;
+  }
+
+  .feature-grid { display: grid; gap: 10px; }
+  .feature-card {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-sm);
+    transition: background var(--t), border-color var(--t);
+  }
+  .feature-card:hover { background: var(--surface-hover); border-color: rgba(139,92,246,0.2); }
+  .feature-icon {
+    width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .feature-icon.purple { background: rgba(139,92,246,0.18); }
+  .feature-icon.cyan   { background: rgba(6,182,212,0.15); }
+  .feature-icon.green  { background: rgba(52,211,153,0.15); }
+  .feature-icon svg { width: 16px; height: 16px; }
+  .feature-icon.purple svg { color: #c4b5fd; }
+  .feature-icon.cyan   svg { color: #67e8f9; }
+  .feature-icon.green  svg { color: #6ee7b7; }
+  .feature-title { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
+  .feature-desc  { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+
+  .stats-row {
+    display: flex; align-items: center; gap: 28px;
+    padding-top: 24px;
+    border-top: 1px solid var(--surface-border);
+  }
+  .stat-num { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; }
+  .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 1px; }
+  .stat-divider { width: 1px; height: 32px; background: var(--surface-border); }
+
+  /* ── RIGHT PANEL ── */
+  .right-panel {
+    display: flex; align-items: center; justify-content: center;
+    padding: 48px 56px;
+  }
+
+  .login-card { width: 100%; max-width: 380px; }
+
+  .login-header { margin-bottom: 32px; }
+  .login-welcome { font-size: 24px; font-weight: 600; letter-spacing: -0.5px; margin-bottom: 6px; }
+  .login-sub { font-size: 14px; color: var(--text-secondary); line-height: 1.5; }
+
+  /* Role selector */
+  .role-selector { display: flex; gap: 6px; margin-bottom: 20px; }
+  .role-btn {
+    flex: 1; padding: 9px 12px;
+    background: var(--surface); border: 1px solid var(--surface-border);
+    border-radius: var(--radius-xs);
+    font-family: var(--font); font-size: 12px; font-weight: 500;
+    color: var(--text-secondary); cursor: pointer;
+    transition: background var(--t), border-color var(--t), color var(--t);
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .role-btn svg { width: 14px; height: 14px; }
+  .role-btn.active { background: var(--accent-soft); border-color: rgba(139,92,246,0.4); color: #c4b5fd; }
+  .role-btn:hover:not(.active) { background: var(--surface-hover); }
+
+  /* Google button */
+  .google-btn {
+    width: 100%;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 13px 20px;
+    background: #fff;
+    border: none;
+    border-radius: var(--radius-xs);
+    font-family: var(--font); font-size: 14px; font-weight: 600;
+    color: #1f1f1f;
+    cursor: pointer;
+    transition: background var(--t), box-shadow var(--t);
+    margin-bottom: 24px;
+  }
+  .google-btn:hover { background: #f5f5f5; box-shadow: 0 2px 12px rgba(0,0,0,0.25); }
+  .google-btn:active { background: #ebebeb; }
+  .google-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .google-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+  /* Divider */
+  .divider {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 20px;
+  }
+  .divider-line { flex: 1; height: 1px; background: var(--surface-border); }
+  .divider-text { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+  /* Form (disabled fields) */
+  .form-group { margin-bottom: 14px; }
+  .form-label { display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; }
+  .input-wrap { position: relative; }
+  .input-icon {
+    position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+    color: var(--text-muted); pointer-events: none;
+  }
+  .input-icon svg { width: 15px; height: 15px; }
+  .form-input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: var(--radius-xs);
+    padding: 11px 13px 11px 40px;
+    font-family: var(--font); font-size: 14px;
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color var(--t), background var(--t);
+  }
+  .form-input::placeholder { color: var(--text-muted); }
+  .form-input:focus { border-color: rgba(139,92,246,0.5); background: rgba(255,255,255,0.06); }
+  .form-input:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Submit */
+  .submit-btn {
+    width: 100%; padding: 12px;
+    background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+    border: none;
+    border-radius: var(--radius-xs);
+    font-family: var(--font); font-size: 14px; font-weight: 600;
+    color: #fff;
+    cursor: pointer;
+    margin-bottom: 0;
+    transition: opacity var(--t);
+  }
+  .submit-btn:hover { opacity: 0.88; }
+  .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Trust bar */
+  .trust-bar {
+    display: flex; align-items: center; justify-content: center; gap: 18px;
+    margin-top: 20px; padding-top: 18px;
+    border-top: 1px solid var(--surface-border);
+  }
+  .trust-item { display: flex; align-items: center; gap: 5px; }
+  .trust-item svg { width: 12px; height: 12px; color: var(--text-muted); }
+  .trust-item span { font-size: 11px; color: var(--text-muted); }
+
+  /* Spinner */
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(30,20,10,0.2);
+    border-top-color: #1f1f1f;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(16px);
+    background: rgba(20,16,40,0.96);
+    border: 1px solid rgba(139,92,246,0.3);
+    border-radius: var(--radius-sm);
+    padding: 11px 18px;
+    font-size: 13px; color: var(--text-primary);
+    backdrop-filter: blur(8px);
+    opacity: 0; transition: opacity 0.25s, transform 0.25s;
+    z-index: 100; display: flex; align-items: center; gap: 8px;
+    white-space: nowrap;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast svg { width: 14px; height: 14px; color: var(--success); flex-shrink: 0; }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    .left-panel { display: none; }
+    .right-panel { padding: 48px 24px; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- LEFT PANEL -->
+  <aside class="left-panel">
+    <div class="left-header">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24"><path d="M12 2L3 7v10l9 5 9-5V7L12 2zm0 2.18L19 8.09v7.82L12 19.82 5 15.91V8.09L12 4.18zM12 7a1 1 0 100 2 1 1 0 000-2zm-4 3v2l4 2 4-2v-2l-4 2-4-2z"/></svg>
+      </div>
+      <span class="logo-text">In<span>Class</span></span>
+    </div>
+
+    <div class="illustration-area">
+      <div class="il-badge">
+        <div class="il-badge-dot"></div>
+        AI-Powered Learning Platform
+      </div>
+
+      <h1 class="il-headline">
+        The future of<br>
+        <span class="grad">classroom intelligence</span><br>
+        is here
+      </h1>
+
+      <p class="il-sub">
+        Real-time tutoring, activity management, and objective-based scoring — powered by LLMs, built for modern education.
+      </p>
+
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="feature-icon purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </div>
+          <div>
+            <div class="feature-title">One-question tutoring flow</div>
+            <div class="feature-desc">Guided step-by-step interactions with objective-based scoring feedback.</div>
+          </div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon cyan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          </div>
+          <div>
+            <div class="feature-title">Live activity management</div>
+            <div class="feature-desc">Instructors start, pause, or end activities with full real-time control.</div>
+          </div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <div>
+            <div class="feature-title">Progress tracking & scoring</div>
+            <div class="feature-desc">Automatic completion detection and exportable score reports.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-item">
+        <div class="stat-num">MEF</div>
+        <div class="stat-label">University</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat-item">
+        <div class="stat-num">2026</div>
+        <div class="stat-label">Cohort</div>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat-item">
+        <div class="stat-num">FastAPI</div>
+        <div class="stat-label">Backend</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- RIGHT PANEL -->
+  <main class="right-panel">
+    <div class="login-card">
+      <div class="login-header">
+        <h2 class="login-welcome">Welcome back</h2>
+        <p class="login-sub">Sign in to your InClass workspace to continue your session.</p>
+      </div>
+
+      <!-- Role selector -->
+      <div class="role-selector" role="group" aria-label="Sign in as">
+        <button class="role-btn active" id="role-student" onclick="setRole('student')" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+          Student
+        </button>
+        <button class="role-btn" id="role-instructor" onclick="setRole('instructor')" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+          Instructor
+        </button>
+      </div>
+
+      <!-- Google Sign-In button -->
+      <button class="google-btn" id="google-btn" onclick="handleGoogleSignIn()" type="button">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+        </svg>
+        <span id="google-btn-label">Sign in with Google</span>
+        <div class="spinner" id="google-spinner"></div>
+      </button>
+
+      <div class="divider">
+        <div class="divider-line"></div>
+        <span class="divider-text">or demo login with email</span>
+        <div class="divider-line"></div>
+      </div>
+
+      <!-- Email field -->
+      <div class="form-group">
+        <label class="form-label" for="email">MEF email address</label>
+        <div class="input-wrap">
+          <span class="input-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 01-2.06 0L2 7"/></svg>
+          </span>
+          <input id="email" type="email" class="form-input" placeholder="you@mef.edu.tr" />
+        </div>
+      </div>
+
+      <!-- Password field -->
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <div class="input-wrap">
+          <span class="input-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+          </span>
+          <input id="password" type="password" class="form-input" placeholder="Any value (demo mode)" />
+        </div>
+      </div>
+
+      <!-- Submit -->
+      <button class="submit-btn" id="submit-btn" type="button" onclick="handleEmailLogin()">Sign in to InClass →</button>
+
+      <!-- Hidden GSI rendered button for popup trigger -->
+      <div id="g-hidden-btn" style="position:absolute;left:-9999px;opacity:0;pointer-events:none;width:1px;height:1px;overflow:hidden;"></div>
+
+      <!-- Trust bar -->
+      <div class="trust-bar">
+        <div class="trust-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span>SSL secured</span>
+        </div>
+        <div class="trust-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+          <span>Data encrypted</span>
+        </div>
+        <div class="trust-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <span>GDPR compliant</span>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+  <span id="toast-msg"></span>
+</div>
+
+<script>
+  // REPLACE with your Google OAuth 2.0 Client ID:
+  // https://console.cloud.google.com/ → APIs & Services → Credentials
+  const GOOGLE_CLIENT_ID = '524652601376-api72qg298ngrrbll031d8hn97224ghg.apps.googleusercontent.com';
+
+  let googleReady = false;
+  let currentRole = 'student';
+
+  // GSI library calls this when ready
+  window.onGoogleLibraryLoad = function() {
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleGoogleCredential,
+      auto_select: false,
+      cancel_on_tap_outside: true,
+    });
+    // Render hidden button — clicking it opens the real Google account picker popup
+    google.accounts.id.renderButton(
+      document.getElementById('g-hidden-btn'),
+      { type: 'standard', size: 'large' }
+    );
+    googleReady = true;
+  };
+
+  function setRole(role) {
+    currentRole = role;
+    document.getElementById('role-student').classList.toggle('active', role === 'student');
+    document.getElementById('role-instructor').classList.toggle('active', role === 'instructor');
+  }
+
+  function showToast(msg) {
+    document.getElementById('toast-msg').textContent = msg;
+    const t = document.getElementById('toast');
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  function handleGoogleSignIn() {
+    if (!googleReady) {
+      showToast('Google Sign-In is loading, please try again.');
+      return;
+    }
+    // Click the hidden rendered Google button — opens account picker popup
+    const hiddenBtn = document.querySelector('#g-hidden-btn div[role="button"]');
+    if (hiddenBtn) {
+      hiddenBtn.click();
+    } else {
+      google.accounts.id.prompt((notification) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+          showToast('Popup blocked. Try disabling ad-blockers or cookie restrictions.');
+        }
+      });
+    }
+  }
+
+  async function handleEmailLogin() {
+    const email = document.getElementById('email').value.trim();
+    if (!email) { showToast('Please enter your email address.'); return; }
+    const name = email.split('@')[0];
+    const demoToken = `demo:${email}:${name}`;
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+    try {
+      const endpoint = currentRole === 'instructor' ? '/auth/google/verify-instructor' : '/auth/google/verify-student';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${demoToken}` },
+        body: '{}',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Authentication failed');
+      }
+      localStorage.setItem('inclass_token', demoToken);
+      localStorage.setItem('inclass_role', currentRole);
+      showToast('Signed in — redirecting…');
+      setTimeout(() => { window.location.href = '/'; }, 900);
+    } catch (err) {
+      showToast('Sign-in failed: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = 'Sign in to InClass →';
+    }
+  }
+
+  async function handleGoogleCredential(response) {
+    const idToken = response.credential;
+    const btn = document.getElementById('google-btn');
+    const label = document.getElementById('google-btn-label');
+    const spinner = document.getElementById('google-spinner');
+    btn.disabled = true;
+    label.style.display = 'none';
+    spinner.style.display = 'block';
+
+    try {
+      const res = await fetch(`/auth/google/${currentRole}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: idToken }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Authentication failed');
+      }
+      localStorage.setItem('inclass_token', idToken);
+      localStorage.setItem('inclass_role', currentRole);
+      showToast('Signed in — redirecting…');
+      setTimeout(() => { window.location.href = '/'; }, 900);
+    } catch (err) {
+      showToast('Sign-in failed: ' + err.message);
+      btn.disabled = false;
+      label.style.display = '';
+      spinner.style.display = 'none';
+    }
+  }
+
+  // Skip login if already authenticated
+  if (localStorage.getItem('inclass_token')) {
+    window.location.replace('/');
+  }
+</script>
+</body>
+</html>
